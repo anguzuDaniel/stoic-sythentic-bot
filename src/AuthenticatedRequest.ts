@@ -1,6 +1,5 @@
 exports.saveBotConfig = async (req, res) => {
   try {
-    // req.user should be set by your authentication middleware
     const user = req.user;
     const config = req.body;
 

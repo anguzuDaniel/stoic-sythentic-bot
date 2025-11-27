@@ -3,15 +3,19 @@ const {
   saveBotConfig, 
   getBotConfig, 
   startBot, 
-  stopBot 
+  stopBot,
+  getBotStatus,
+  forceTrade
 } = require('../controllers/bot.controller');
 const { requirePaidUser } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-router.post("/config", requirePaidUser, saveBotConfig);
-router.get("/config", requirePaidUser, getBotConfig);
-router.post("/start", requirePaidUser, startBot);
-router.post("/stop", requirePaidUser, stopBot);
+router.post("/config",  saveBotConfig);
+router.get("/config",  getBotConfig);
+router.post("/start",  startBot);
+router.post("/stop", stopBot);
+router.get("/status", getBotStatus);
+router.post("/force-trade", forceTrade);
 
 module.exports = router;
