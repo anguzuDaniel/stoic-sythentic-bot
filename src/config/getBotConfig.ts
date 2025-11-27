@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
-import { supabase } from "../../frontend/app/utils/supabaseClient.js";
 import type { AuthenticatedRequest } from "../AuthenticatedRequest.js";
+import { supabase } from "./supabase.js";
 
 export const getBotConfig = async (req: Request, res: Response) => {
   const user = (req as unknown as AuthenticatedRequest).user;

@@ -1,15 +1,14 @@
-// types/express.d.ts
-import type { AuthenticatedRequest } from '../path/to/AuthenticatedRequest';
+import { User } from '@prisma/client';
+import { Request } from 'express';
 
 declare global {
   namespace Express {
     interface Request {
-      user?: {
-        id: string;
-        email: string;
-        first_name?: string;
-        has_paid?: boolean;
-      };
+      user?: User; // Make user optional to match Express's Request type
     }
   }
+}
+
+export interface AuthenticatedRequest extends Request {
+  user: User; // For routes where user is guaranteed to exist
 }

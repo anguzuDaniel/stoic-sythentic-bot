@@ -1,20 +1,17 @@
-import { Router, type Request, type Response } from "express";
-import { saveBotConfig } from "../controllers/bot.controller.js";
-import { getBotConfig } from "../config/getBotConfig.js";
-import { startBot } from "../config/startBot.js";
-import { stopBot } from "../config/stopBot.js";
-import { requireAuth, requirePaidUser } from "../middleware/authMiddleware.js";
-
-type AuthenticatedRequestWithUser = Request & { user?: any };
+const { Router } = require('express');
+const { 
+  saveBotConfig, 
+  getBotConfig, 
+  startBot, 
+  stopBot 
+} = require('../controllers/bot.controller');
+const { requirePaidUser } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-router.post("/config", requireAuth, requirePaidUser, saveBotConfig);
+router.post("/config", requirePaidUser, saveBotConfig);
+router.get("/config", requirePaidUser, getBotConfig);
+router.post("/start", requirePaidUser, startBot);
+router.post("/stop", requirePaidUser, stopBot);
 
-router.get("/config", requireAuth, requirePaidUser, getBotConfig);
-
-router.post("/start", requireAuth, requirePaidUser, startBot);
-
-router.post("/stop", requireAuth, requirePaidUser, stopBot);
-
-export default router;
+module.exports = router;

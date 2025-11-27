@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
-import { supabase } from "../../frontend/app/utils/supabaseClient.js";
+
+const { supabase } = require('../config/supabase');
 
 export const loginUser = async (req: Request, res: Response) => {
   const { email, password } = req.body;

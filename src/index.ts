@@ -1,11 +1,20 @@
-import express from "express";
-import authRoutes from "./routes/auth.routes.js";
-import botRoutes from "./routes/bot.routes.js";
+const express = require('express');
+const authRoutes = require('./routes/auth.routes');
+const botRoutes = require('./routes/bot.routes');
+const userRoutes = require('./routes/user.routes');
+const { authenticateToken } = require('./middleware/auth.middleware');
 
 const app = express();
+
+// Middleware
 app.use(express.json());
 
-app.use("/api/auth", authRoutes);
-app.use("/api/bot", botRoutes);
+// Routes
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/bot', authenticateToken, botRoutes);
+app.use('/api/v1/user', authenticateToken, userRoutes);
 
-app.listen(4000, () => console.log("Server running on port 4000"));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

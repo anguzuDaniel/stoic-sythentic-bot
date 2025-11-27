@@ -1,20 +1,18 @@
-import type { Request, Response } from "express";
-import { supabase } from "../../frontend/app/utils/supabaseClient.js";
-import type { AuthenticatedRequest } from "../AuthenticatedRequest.js";
-
-export const getUserProfile = async (req: Request, res: Response) => {
-    const authenticatedReq = req as unknown as AuthenticatedRequest;
-
+exports.getUserProfile = async (req, res) => {
   try {
-    if (!authenticatedReq.user) return res.status(401).json({ error: "Not authenticated" });
+    if (!req.user) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
 
     const { data, error } = await supabase
       .from("users")
       .select("*")
-      .eq("id", authenticatedReq.user.id)
+      .eq("id", req.user.id)
       .single();
 
-    if (error) return res.status(400).json({ error: error.message });
+    if (error) {
+      return res.status(400).json({ error: error.message });
+    }
 
     res.json({ user: data });
   } catch (err) {
@@ -23,10 +21,9 @@ export const getUserProfile = async (req: Request, res: Response) => {
   }
 };
 
-export const updatePlan = async (req: Request, res: Response) => {
-    const authenticatedReq = req as unknown as AuthenticatedRequest;
+exports.updatePlan = async (req, res) => {
   try {
-    if (!authenticatedReq.user) {
+    if (!req.user) {
       return res.status(401).json({ error: "Not authenticated" });
     }
 
@@ -36,15 +33,26 @@ export const updatePlan = async (req: Request, res: Response) => {
     }
 
     const { data, error } = await supabase
-        .from("subscriptions")
-        .upsert([{ user_id: authenticatedReq.user.id, plan, status }], { onConflict: "user_id" })
-        .single();
+      .from("subscriptions")
+      .upsert([{ 
+        user_id: req.user.id, 
+        plan, 
+        status,
+        updated_at: new Date()
+      }], { 
+        onConflict: "user_id" 
+      })
+      .select()
+      .single();
 
     if (error) {
       return res.status(400).json({ error: error.message });
     }
 
-    return res.json({ message: "Plan updated successfully", subscription: data });
+    return res.json({ 
+      message: "Plan updated successfully", 
+      subscription: data 
+    });
   } catch (err) {
     console.error("updatePlan error:", err);
     return res.status(500).json({ error: "Server error" });
