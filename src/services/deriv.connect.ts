@@ -1,0 +1,13 @@
+import dotenv from "dotenv";
+import { DerivWebSocket } from "../config/deriv";
+dotenv.config();
+
+export const deriv = new DerivWebSocket({
+  apiToken: process.env.DERIV_API_KEY!,
+  appId: process.env.DERIV_APP_ID!,
+});
+
+export const connectDeriv = () => {
+  deriv.connect();
+  return deriv;
+};
