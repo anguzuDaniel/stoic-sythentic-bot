@@ -29,22 +29,19 @@ export class DerivWebSocket {
   connect() {
     const { appId } = this.options;
 
-    this.ws = new WebSocket(`wss://ws.deriv.com/websockets/v3?app_id=${appId}`);
+    this.ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${appId}`);
 
     this.ws.on("open", () => {
       console.log("🔗 Connected to Deriv WebSocket");
 
-      // Authorize
       this.ws!.send(
         JSON.stringify({
           authorize: this.options.apiToken,
         })
       );
 
-      // Reset reconnect attempts
       this.reconnectAttempts = 0;
 
-      // Start heartbeat
       this.startHeartbeat();
     });
 
@@ -56,7 +53,6 @@ export class DerivWebSocket {
     this.ws.on("close", () => {
       console.log("⚠️ Connection closed.");
 
-      // Stop heartbeat
       this.stopHeartbeat();
 
       if (this.options.reconnect) this.tryReconnect();
@@ -89,12 +85,12 @@ export class DerivWebSocket {
   }
 
   private startHeartbeat() {
-    this.stopHeartbeat(); // clear previous heartbeat if any
+    this.stopHeartbeat();
 
     this.heartbeatTimer = setInterval(() => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-      this.ws.ping(); // send heart beat
+      this.ws.ping();
     }, this.options.heartbeatInterval);
   }
 

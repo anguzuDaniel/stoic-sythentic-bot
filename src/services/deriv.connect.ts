@@ -3,7 +3,7 @@ import { DerivWebSocket } from "../config/deriv";
 dotenv.config();
 
 export const deriv = new DerivWebSocket({
-  apiToken: process.env.DERIV_API_KEY!,
+  apiToken: process.env.DERIV_API_TOKEN!,
   appId: process.env.DERIV_APP_ID!,
 });
 

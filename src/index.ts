@@ -1,3 +1,5 @@
+import { connectDeriv } from "./services/deriv.connect";
+
 const express = require('express');
 const authRoutes = require('./routes/auth.routes');
 const botRoutes = require('./routes/bot.routes');
@@ -5,6 +7,8 @@ const userRoutes = require('./routes/user.routes');
 const { authenticateToken } = require('./middleware/auth.middleware');
 
 const app = express();
+
+connectDeriv();
 
 // Middleware
 app.use(express.json());
