@@ -1,3 +1,5 @@
+const { supabase } = require('../config/supabase');
+
 exports.getUserProfile = async (req, res) => {
   try {
     if (!req.user) {

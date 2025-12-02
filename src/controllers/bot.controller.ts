@@ -1,16 +1,59 @@
-const { supabase } = require("../config/supabase");
+import { Request, Response } from 'express';
+import { DerivSupplyDemandStrategy, DerivSignal } from '../strategies/DerivSupplyDemandStrategy';
 
-const TEMP_USER_ID = "dev-user-123";
+const { supabase } = require('../config/supabase');
 
-exports.saveBotConfig = async (req, res) => {
+const deriv = require('../config/deriv');
+
+interface JWTUser {
+  id: string;
+  email: string;
+  subscription_status?: string;
+  [key: string]: any;
+}
+
+interface AuthenticatedRequest extends Request {
+  user: JWTUser;
+}
+
+// Bot state management
+const botStates = new Map<string, {
+  isRunning: boolean;
+  startedAt: Date | null;
+  tradingInterval: NodeJS.Timeout | null;
+  currentTrades: any[];
+  totalProfit: number;
+  tradesExecuted: number;
+  strategy: DerivSupplyDemandStrategy;
+  derivConnected: boolean;
+  config: any;
+}>();
+
+export const saveBotConfig = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = req.user.id;
     const config = req.body;
+
+    console.log(`💾 Saving bot config for user ${userId}`);
+
+    // Validate required config
+    if (!config.symbols || !config.symbols.length) {
+      return res.status(400).json({ error: "At least one trading symbol is required" });
+    }
+
+    // Validate trade amount based on subscription
+    const baseAmount = config.amountPerTrade || 10;
+    if (req.user.subscription_status === 'free' && baseAmount > 10) {
+      return res.status(403).json({ 
+        error: "Free users are limited to $10 per trade. Upgrade to premium for higher limits." 
+      });
+    }
 
     const { error } = await supabase
       .from("bot_configs")
       .upsert({
-        user_id: TEMP_USER_ID,
-        config_data: config, // Store entire config as JSON
+        user_id: userId,
+        config_data: config,
         updated_at: new Date()
       }, {
         onConflict: 'user_id'
@@ -21,60 +64,165 @@ exports.saveBotConfig = async (req, res) => {
       return res.status(400).json({ error: error.message });
     }
 
-    res.json({ message: "Bot settings saved" });
-  } catch (error) {
+    // Update local config if bot is running
+    const botState = botStates.get(userId);
+    if (botState && botState.isRunning) {
+      botState.config = config;
+      console.log(`🔄 Updated config for user ${userId} while bot is running`);
+    }
+
+    res.json({ 
+      message: "Bot settings saved",
+      user: {
+        id: userId,
+        subscription: req.user.subscription_status
+      }
+    });
+  } catch (error: any) {
     console.error('Save bot config error:', error);
     res.status(500).json({ error: 'Failed to save bot configuration' });
   }
 };
 
-exports.getBotConfig = async (req, res) => {
+export const getBotConfig = async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const userId = req.user.id;
+
     const { data, error } = await supabase
       .from("bot_configs")
       .select("config_data")
-      .eq("user_id", TEMP_USER_ID)
+      .eq("user_id", userId)
       .single();
 
     if (error && error.code !== 'PGRST116') {
       return res.status(400).json({ error: error.message });
     }
 
-    res.json({ config: data?.config_data || {} });
-  } catch (error) {
+    res.json({ 
+      config: data?.config_data || {},
+      user: {
+        id: userId,
+        subscription: req.user.subscription_status
+      }
+    });
+  } catch (error: any) {
     console.error('Get bot config error:', error);
     res.status(500).json({ error: 'Failed to get bot configuration' });
   }
 };
 
-let botInterval = null;
-
-exports.startBot = async (req, res) => {
+export const startBot = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    // Check if bot is already running in database
-    const { data: existingStatus } = await supabase
-      .from("bot_status")
-      .select("*")
-      .eq("user_id", TEMP_USER_ID)
-      .single();
+    const userId = req.user.id;
+    const userEmail = req.user.email;
+    const subscription = req.user.subscription_status;
 
-    if (existingStatus && existingStatus.is_running) {
-      return res.status(400).json({ error: "Bot is already running" });
+    console.log(`🚀 Starting bot for user ${userId} (${userEmail})`);
+
+    // Check subscription for free users
+    if (subscription === 'free') {
+      // Check if free user has already used their quota
+      const { data: existingBots } = await supabase
+        .from("bot_status")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("is_running", true);
+
+      if (existingBots && existingBots.length > 0) {
+        return res.status(403).json({ 
+          error: "Free users can only run one bot at a time. Upgrade to premium for multiple bots." 
+        });
+      }
+    }
+
+    // Check if bot is already running for this user
+    if (botStates.has(userId) && botStates.get(userId)!.isRunning) {
+      return res.status(400).json({ error: "Bot is already running for your account" });
     }
 
     // Get bot configuration
-    const { data: config } = await supabase
+    const { data: configData, error: configError } = await supabase
       .from("bot_configs")
-      .select("*")
-      .eq("user_id", TEMP_USER_ID)
+      .select("config_data")
+      .eq("user_id", userId)
       .single();
+
+    if (configError && configError.code !== 'PGRST116') {
+      return res.status(400).json({ error: configError.message });
+    }
+
+    const config = configData?.config_data || {};
+    
+    // Validate config
+    if (!config.symbols || config.symbols.length === 0) {
+      return res.status(400).json({ error: "Please configure trading symbols first" });
+    }
+
+    // Validate trade amount based on subscription
+    const baseAmount = config.amountPerTrade || 10;
+    if (subscription === 'free' && baseAmount > 10) {
+      return res.status(403).json({ 
+        error: "Free users are limited to $10 per trade. Upgrade to premium for higher limits." 
+      });
+    }
+
+    // Initialize Deriv connection
+    console.log(`🔗 Connecting to Deriv for user ${userId}...`);
+    
+    // Check if Deriv is already connected
+    if (!isDerivConnected()) {
+      deriv.connect();
+      
+      // Wait for authorization
+      await new Promise<void>((resolve) => {
+        const authHandler = (data: any) => {
+          if (data.msg_type === 'authorize' && data.authorize?.account_id) {
+            console.log(`✅ Deriv authorized: ${data.authorize.account_id}`);
+            deriv.off('message', authHandler);
+            resolve();
+          }
+        };
+        deriv.on('message', authHandler);
+
+        setTimeout(() => {
+          deriv.off('message', authHandler);
+          console.log(`⚠️ Deriv authorization timeout`);
+          resolve();
+        }, 10000);
+      });
+    } else {
+      console.log(`✅ Deriv already connected`);
+    }
+
+    // Initialize strategy
+    const strategy = new DerivSupplyDemandStrategy();
+    
+    // Configure strategy from user config
+    if (config.minSignalGap) {
+      // strategy.setMinSignalGap(config.minSignalGap * 60000); // Convert minutes to ms
+    }
+
+    // Initialize bot state
+    const botState = {
+      isRunning: true,
+      startedAt: new Date(),
+      tradingInterval: null,
+      currentTrades: [],
+      totalProfit: 0,
+      tradesExecuted: 0,
+      strategy,
+      derivConnected: true,
+      config
+    };
+
+    botStates.set(userId, botState);
 
     // Save bot status to database
     const startedAt = new Date();
     const { error: statusError } = await supabase
       .from("bot_status")
       .upsert({
-        user_id: TEMP_USER_ID,
+        user_id: userId,
         is_running: true,
         started_at: startedAt,
         current_trades: [],
@@ -83,46 +231,91 @@ exports.startBot = async (req, res) => {
 
     if (statusError) {
       console.log('Database error:', statusError);
-      return res.status(400).json({ error: statusError.message });
     }
 
-    // Start the trading interval
-    botInterval = setInterval(() => {
-      simulateTradingCycle(TEMP_USER_ID);
-    }, 10000);
+    // Subscribe to real-time ticks for all symbols
+    config.symbols.forEach((symbol: string) => {
+      deriv.subscribeTicks(symbol);
+      console.log(`👂 Subscribed to ${symbol} for user ${userId}`);
+    });
 
-    console.log('🤖 Bot started and status saved to database');
+    // Start the trading cycle
+    const tradingInterval = setInterval(() => {
+      executeTradingCycle(userId, config);
+    }, config.analysisInterval || 30000); // Default: 30 seconds
+
+    botState.tradingInterval = tradingInterval;
+
+    // Listen for trading signals from DerivWebSocket
+    const signalHandler = (signal: DerivSignal) => {
+      if (signal.action !== 'HOLD') {
+        console.log(`🎯 Signal detected: ${signal.action} ${signal.symbol}`);
+        handleTradingSignal(userId, signal);
+      }
+    };
+    deriv.on('trading_signal', signalHandler);
+
+    // Store the handler reference for cleanup
+    botState.config._signalHandler = signalHandler;
+
+    console.log(`🤖 Bot started for user ${userId}`);
+    console.log(`📊 Trading symbols: ${config.symbols.join(', ')}`);
+    console.log(`⏱️  Analysis interval: ${config.analysisInterval || 30} seconds`);
+    console.log(`💰 Trade amount: $${baseAmount}`);
+    console.log(`👑 Subscription: ${subscription}`);
 
     res.json({ 
-      message: "Bot started successfully",
+      message: "Trading bot started successfully",
       status: "running",
       startedAt: startedAt,
-      config: config || {}
+      user: {
+        id: userId,
+        email: userEmail,
+        subscription: subscription
+      },
+      config: {
+        symbols: config.symbols,
+        analysisInterval: config.analysisInterval || 30,
+        amountPerTrade: baseAmount
+      }
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Start bot error:', error);
-    res.status(500).json({ error: 'Failed to start bot' });
+    res.status(500).json({ error: 'Failed to start bot: ' + error.message });
   }
 };
 
-exports.stopBot = async (req, res) => {
+export const stopBot = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    // Check bot status in database
-    const { data: status } = await supabase
-      .from("bot_status")
-      .select("*")
-      .eq("user_id", TEMP_USER_ID)
-      .single();
+    const userId = req.user.id;
+    const botState = botStates.get(userId);
 
-    if (!status || !status.is_running) {
-      return res.status(400).json({ error: "Bot is not running" });
+    console.log(`🛑 Stopping bot for user ${userId}`);
+
+    if (!botState || !botState.isRunning) {
+      return res.status(400).json({ error: "Bot is not running for your account" });
     }
 
     // Stop the interval
-    if (botInterval) {
-      clearInterval(botInterval);
-      botInterval = null;
+    if (botState.tradingInterval) {
+      clearInterval(botState.tradingInterval);
+      botState.tradingInterval = null;
     }
+
+    // Remove signal handler
+    if (botState.config._signalHandler) {
+      deriv.off('trading_signal', botState.config._signalHandler);
+    }
+
+    // Unsubscribe from all symbols
+    if (botState.config.symbols) {
+      // Note: You might need to implement unsubscribe in DerivWebSocket
+      console.log(`🔇 Unsubscribed from symbols for user ${userId}`);
+    }
+
+    // Update bot state
+    botState.isRunning = false;
+    botState.derivConnected = false;
 
     // Update database
     const stoppedAt = new Date();
@@ -133,278 +326,514 @@ exports.stopBot = async (req, res) => {
         stopped_at: stoppedAt,
         updated_at: stoppedAt
       })
-      .eq("user_id", TEMP_USER_ID);
+      .eq("user_id", userId);
 
     if (error) {
-      return res.status(400).json({ error: error.message });
+      console.log('Database error:', error);
     }
 
-    console.log('🛑 Bot stopped and status updated in database');
+    // Remove from memory
+    botStates.delete(userId);
+
+    console.log(`✅ Bot stopped for user ${userId}`);
+    console.log(`📊 Final stats: ${botState.tradesExecuted} trades, P&L: $${botState.totalProfit.toFixed(2)}`);
 
     res.json({ 
-      message: "Bot stopped successfully",
+      message: "Trading bot stopped successfully",
       status: "stopped",
-      startedAt: status.started_at,
-      stoppedAt: stoppedAt
+      startedAt: botState.startedAt,
+      stoppedAt: stoppedAt,
+      performance: {
+        tradesExecuted: botState.tradesExecuted,
+        totalProfit: botState.totalProfit,
+        activeTrades: botState.currentTrades.length
+      },
+      user: {
+        id: userId,
+        subscription: req.user.subscription_status
+      }
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Stop bot error:', error);
     res.status(500).json({ error: 'Failed to stop bot' });
   }
 };
 
-exports.getBotStatus = async (req, res) => {
+export const getBotStatus = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    // Get status from database
-    const { data: status, error } = await supabase
-      .from("bot_status")
-      .select("*")
-      .eq("user_id", TEMP_USER_ID)
-      .single();
+    const userId = req.user.id;
+    const botState = botStates.get(userId);
 
-    if (error && error.code !== 'PGRST116') {
-      return res.status(400).json({ error: error.message });
-    }
+    console.log(`📊 Getting bot status for user ${userId}`);
 
-    res.json({
-      isRunning: status?.is_running || false,
-      startedAt: status?.started_at,
-      stoppedAt: status?.stopped_at,
-      currentTrades: status?.current_trades?.length || 0,
-      status: status?.is_running ? "running" : "stopped"
-    });
-  } catch (error) {
-    console.error('Get bot status error:', error);
-    res.status(500).json({ error: 'Failed to get bot status' });
-  }
-};
+    if (!botState) {
+      // Check database for historical status
+      const { data: status, error } = await supabase
+        .from("bot_status")
+        .select("*")
+        .eq("user_id", userId)
+        .single();
 
-// Bot state management
-let botState = {
-  isRunning: false,
-  startedAt: null,
-  currentTrades: [],
-  botInstance: null,
-  totalProfit: 0,
-  tradesExecuted: 0
-};
-
-// Enhanced trading simulation
-function simulateTradingCycle(config) {
-  if (!botState.isRunning) return;
-
-  const tradingPairs = config?.trading_pairs || ['BTC/USD', 'ETH/USD', 'SOL/USD', 'ADA/USD', 'DOT/USD'];
-  const maxTrades = config?.max_trades_per_day || 10;
-  const riskLevel = config?.risk_level || 'medium';
-  
-  // Adjust trading frequency based on risk level
-  let tradeProbability = 0.3; // medium risk default
-  if (riskLevel === 'low') tradeProbability = 0.15;
-  if (riskLevel === 'high') tradeProbability = 0.5;
-
-  // Simulate market conditions
-  const marketVolatility = Math.random();
-  const isBullMarket = Math.random() > 0.4;
-
-  console.log(`📊 Market: ${isBullMarket ? '🟢 BULL' : '🔴 BEAR'} | Volatility: ${(marketVolatility * 100).toFixed(1)}%`);
-
-  // Trading logic
-  if (botState.currentTrades.length < maxTrades && Math.random() < tradeProbability) {
-    executeTrade(tradingPairs, isBullMarket, marketVolatility, config);
-  }
-
-  // Update existing trades (simulate price movements)
-  updateExistingTrades(isBullMarket, marketVolatility);
-
-  // Log current status
-  console.log(`🤖 Bot Status | Trades: ${botState.currentTrades.length}/${maxTrades} | Profit: $${botState.totalProfit.toFixed(2)}`);
-}
-
-function executeTrade(tradingPairs, isBullMarket, volatility, config) {
-  const pair = tradingPairs[Math.floor(Math.random() * tradingPairs.length)];
-  const basePrices = {
-    'BTC/USD': 45000,
-    'ETH/USD': 2500,
-    'SOL/USD': 100,
-    'ADA/USD': 0.5,
-    'DOT/USD': 7
-  };
-
-  const basePrice = basePrices[pair] || 100;
-  
-  // Simulate price with volatility
-  const priceVariation = (Math.random() - 0.5) * volatility * 0.1;
-  const currentPrice = basePrice * (1 + priceVariation);
-  
-  // Trading decision based on market condition
-  const action = isBullMarket ? 
-    (Math.random() > 0.3 ? 'BUY' : 'SELL') : 
-    (Math.random() > 0.7 ? 'BUY' : 'SELL');
-
-  const amount = (Math.random() * 0.05 + 0.01).toFixed(4);
-  const investment = currentPrice * parseFloat(amount);
-
-  const trade = {
-    id: Date.now() + Math.floor(Math.random() * 1000),
-    pair: pair,
-    action: action,
-    entryPrice: currentPrice.toFixed(2),
-    amount: amount,
-    investment: investment.toFixed(2),
-    stopLoss: (currentPrice * (1 - (config?.stop_loss_percentage || 2) / 100)).toFixed(2),
-    takeProfit: (currentPrice * (1 + (config?.take_profit_percentage || 4) / 100)).toFixed(2),
-    status: 'open',
-    pnl: 0,
-    pnlPercentage: 0,
-    timestamp: new Date().toISOString()
-  };
-
-  botState.currentTrades.push(trade);
-  botState.tradesExecuted++;
-  
-  console.log(`🎯 NEW TRADE: ${trade.action} ${trade.amount} ${trade.pair} at $${trade.entryPrice}`);
-  console.log(`   💰 Investment: $${trade.investment} | SL: $${trade.stopLoss} | TP: $${trade.takeProfit}`);
-}
-
-function updateExistingTrades(isBullMarket, volatility) {
-  botState.currentTrades.forEach((trade, index) => {
-    if (trade.status === 'open') {
-      // Simulate price movement
-      const priceChange = (Math.random() - 0.5) * volatility * 0.08;
-      const directionMultiplier = isBullMarket ? 1.2 : 0.8; // Bull markets tend up
-      const currentPrice = parseFloat(trade.entryPrice) * (1 + priceChange * directionMultiplier);
-      
-      // Calculate P&L
-      const priceDifference = currentPrice - parseFloat(trade.entryPrice);
-      const pnl = priceDifference * parseFloat(trade.amount);
-      const pnlPercentage = (priceDifference / parseFloat(trade.entryPrice)) * 100;
-
-      trade.currentPrice = currentPrice.toFixed(2);
-      trade.pnl = pnl;
-      trade.pnlPercentage = pnlPercentage;
-
-      // Check stop loss / take profit
-      if (currentPrice <= parseFloat(trade.stopLoss)) {
-        closeTrade(trade, index, 'stop_loss');
-      } else if (currentPrice >= parseFloat(trade.takeProfit)) {
-        closeTrade(trade, index, 'take_profit');
-      } else if (Math.random() < 0.05) { // 5% chance of manual close
-        closeTrade(trade, index, 'manual');
+      if (error && error.code !== 'PGRST116') {
+        return res.status(400).json({ error: error.message });
       }
-    }
-  });
-}
 
-function closeTrade(trade, index, closeReason) {
-  trade.status = 'closed';
-  trade.closeReason = closeReason;
-  trade.closedAt = new Date().toISOString();
-  trade.closePrice = trade.currentPrice;
-
-  // Update total profit
-  botState.totalProfit += trade.pnl;
-
-  const emoji = trade.pnl >= 0 ? '💰' : '💸';
-  console.log(`🔒 TRADE CLOSED: ${emoji} ${trade.pair} | P&L: $${trade.pnl.toFixed(2)} (${trade.pnlPercentage.toFixed(2)}%) | Reason: ${closeReason}`);
-  
-  // Remove from current trades after a delay
-  setTimeout(() => {
-    botState.currentTrades = botState.currentTrades.filter(t => t.id !== trade.id);
-  }, 5000);
-}
-
-// Update your existing functions to use the enhanced simulation
-exports.startBot = async (req, res) => {
-  try {
-    if (botState.isRunning) {
-      return res.status(400).json({ error: "Bot is already running" });
+      return res.json({
+        isRunning: false,
+        startedAt: status?.started_at || null,
+        stoppedAt: status?.stopped_at || null,
+        currentTrades: [],
+        totalProfit: 0,
+        tradesExecuted: 0,
+        message: "Bot not currently running",
+        user: {
+          id: userId,
+          subscription: req.user.subscription_status
+        }
+      });
     }
 
-    // Get bot configuration
-    const { data: config, error } = await supabase
-      .from("bot_configs")
-      .select("*")
-      .eq("user_id", TEMP_USER_ID)
-      .single();
-
-    // Start the bot with enhanced simulation
-    botState.isRunning = true;
-    botState.startedAt = new Date();
-    botState.currentTrades = [];
-    botState.totalProfit = 0;
-    botState.tradesExecuted = 0;
-
-    console.log('🚀 STARTING ENHANCED TRADING BOT');
-    console.log('⚙️  Configuration:', config);
-
-    // Run trading cycle every 8 seconds for better simulation
-    botState.botInstance = setInterval(() => {
-      simulateTradingCycle(config);
-    }, 8000);
-
-    res.json({ 
-      message: "Enhanced trading bot started successfully",
-      status: "running",
-      startedAt: botState.startedAt,
-      config: config || {},
-      simulation: {
-        interval: "8 seconds",
-        features: ["market conditions", "stop loss/take profit", "real-time P&L", "volatility simulation"]
-      }
-    });
-  } catch (error) {
-    console.error('Start bot error:', error);
-    res.status(500).json({ error: 'Failed to start bot' });
-  }
-};
-
-exports.getBotStatus = async (req, res) => {
-  try {
-    const activeTrades = botState.currentTrades.filter(trade => trade.status === 'open');
-    const closedTrades = botState.currentTrades.filter(trade => trade.status === 'closed');
+    const activeTrades = botState.currentTrades.filter((trade: any) => trade.status === 'open');
+    const closedTrades = botState.currentTrades.filter((trade: any) => trade.status === 'closed');
 
     res.json({
       isRunning: botState.isRunning,
       startedAt: botState.startedAt,
+      stoppedAt: null,
       performance: {
         totalProfit: botState.totalProfit,
         tradesExecuted: botState.tradesExecuted,
         activeTrades: activeTrades.length,
+        closedTrades: closedTrades.length,
         winRate: botState.tradesExecuted > 0 ? 
-          ((botState.tradesExecuted - closedTrades.filter(t => t.pnl < 0).length) / botState.tradesExecuted * 100).toFixed(1) : 0
+          ((botState.tradesExecuted - closedTrades.filter((t: any) => t.pnl < 0).length) / botState.tradesExecuted * 100).toFixed(1) : 0
       },
       activeTrades: activeTrades,
-      status: botState.isRunning ? "running" : "stopped"
+      config: botState.config,
+      derivConnected: botState.derivConnected,
+      status: botState.isRunning ? "running" : "stopped",
+      user: {
+        id: userId,
+        subscription: req.user.subscription_status
+      }
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Get bot status error:', error);
     res.status(500).json({ error: 'Failed to get bot status' });
   }
 };
 
-// Add this to your bot.controller.ts
-exports.forceTrade = async (req, res) => {
+// Real trading functions
+async function executeTradingCycle(userId: string, config: any) {
+  const botState = botStates.get(userId);
+  if (!botState || !botState.isRunning) return;
+
+  console.log(`📊 [${userId}] Executing trading cycle...`);
+
   try {
-    const { data: config } = await supabase
-      .from("bot_configs")
-      .select("*")
-      .eq("user_id", TEMP_USER_ID)
-      .single();
+    // For each symbol, get recent candles and analyze
+    for (const symbol of config.symbols) {
+      if (!botState.isRunning) break;
 
-    console.log('🎯 MANUALLY FORCING TRADE');
-    executeTrade(
-      config?.trading_pairs || ['BTC/USD', 'ETH/USD'], 
-      true, 
-      0.5, 
-      config
-    );
+      try {
+        // Get historical data
+        const timeframe = config.timeframe || 60; // Default 1-minute candles
+        const candles = await getCandlesFromDeriv(symbol, timeframe, 100);
+        
+        if (candles.length < 20) {
+          console.log(`⚠️ [${userId}] Insufficient data for ${symbol}`);
+          continue;
+        }
 
-    res.json({ 
-      message: "Trade forced successfully",
-      activeTrades: botState.currentTrades.length
+        // Analyze with supply/demand strategy
+        const signal = botState.strategy.analyzeCandles(candles, symbol, timeframe);
+        
+        if (signal.action !== 'HOLD') {
+          console.log(`🎯 [${userId}] Signal generated: ${signal.action} ${signal.symbol}`);
+          
+          // Adjust amount based on user config
+          signal.amount = config.amountPerTrade || 10;
+          
+          // Execute trade
+          const tradeResult = await executeTradeOnDeriv(userId, signal, config);
+          
+          if (tradeResult) {
+            botState.tradesExecuted++;
+            botState.currentTrades.push(tradeResult);
+            
+            // Save trade to database
+            await saveTradeToDatabase(userId, tradeResult);
+          }
+        }
+
+        // Small delay to avoid rate limits
+        await delay(1000);
+        
+      } catch (error: any) {
+        console.error(`❌ [${userId}] Error analyzing ${symbol}:`, error.message);
+      }
+    }
+
+    // Update existing trades
+    updateExistingTrades(userId);
+
+  } catch (error: any) {
+    console.error(`❌ [${userId}] Trading cycle error:`, error.message);
+  }
+}
+
+async function getCandlesFromDeriv(symbol: string, timeframe: number, count: number): Promise<any[]> {
+  return new Promise((resolve, reject) => {
+    const requestId = Date.now();
+    
+    // Set up one-time listener
+    const handler = (data: any) => {
+      if (data.req_id === requestId) {
+        deriv.off('message', handler);
+        if (data.candles || data.history?.prices) {
+          const candles = data.candles || data.history.prices;
+          resolve(candles.map((c: any) => ({
+            open: parseFloat(c.open),
+            high: parseFloat(c.high),
+            low: parseFloat(c.low),
+            close: parseFloat(c.close),
+            epoch: c.epoch || c.time
+          })));
+        } else {
+          reject(new Error('No candle data returned'));
+        }
+      }
+    };
+
+    deriv.on('message', handler);
+
+    // Send request
+    deriv.send({
+      ticks_history: symbol,
+      adjust_start_time: 1,
+      end: 'latest',
+      start: 1,
+      count,
+      style: 'candles',
+      granularity: timeframe,
+      req_id: requestId
     });
-  } catch (error) {
+
+    // Timeout after 5 seconds
+    setTimeout(() => {
+      deriv.off('message', handler);
+      reject(new Error('Timeout loading candles'));
+    }, 5000);
+  });
+}
+
+async function executeTradeOnDeriv(userId: string, signal: DerivSignal, config: any): Promise<any> {
+  try {
+    console.log(`📤 [${userId}] Executing trade: ${signal.contract_type} ${signal.symbol} $${signal.amount}`);
+    
+    // Get proposal first
+    const proposal = await getProposalFromDeriv(signal);
+    
+    if (!proposal) {
+      console.error(`❌ [${userId}] No proposal received`);
+      return null;
+    }
+
+    console.log(`📊 [${userId}] Proposal: ${proposal.display_value} - Payout: $${proposal.payout}`);
+    
+    // Execute the trade
+    const tradeResult = await buyContractOnDeriv(signal, proposal.id);
+    
+    if (!tradeResult) {
+      console.error(`❌ [${userId}] Trade execution failed`);
+      return null;
+    }
+
+    console.log(`✅ [${userId}] Trade executed: ${tradeResult.buy?.contract_id}`);
+    
+    return {
+      id: tradeResult.buy?.contract_id || Date.now().toString(),
+      userId: userId,
+      symbol: signal.symbol,
+      contractType: signal.contract_type,
+      action: signal.action,
+      amount: signal.amount,
+      entryPrice: tradeResult.buy?.entry_tick || 0,
+      payout: tradeResult.buy?.payout || 0,
+      status: 'open',
+      timestamp: new Date(),
+      proposalId: proposal.id,
+      contractId: tradeResult.buy?.contract_id,
+      pnl: 0,
+      pnlPercentage: 0
+    };
+
+  } catch (error: any) {
+    console.error(`❌ [${userId}] Trade execution error:`, error.message);
+    return null;
+  }
+}
+
+async function getProposalFromDeriv(signal: DerivSignal): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const requestId = Date.now();
+    
+    const handler = (data: any) => {
+      if (data.req_id === requestId) {
+        deriv.off('message', handler);
+        if (data.proposal) {
+          resolve(data.proposal);
+        } else {
+          reject(new Error('No proposal returned'));
+        }
+      }
+    };
+
+    deriv.on('message', handler);
+
+    deriv.send({
+      proposal: 1,
+      amount: signal.amount,
+      basis: 'stake',
+      contract_type: signal.contract_type,
+      currency: 'USD',
+      duration: signal.duration,
+      duration_unit: signal.duration_unit,
+      symbol: signal.symbol,
+      req_id: requestId
+    });
+
+    setTimeout(() => {
+      deriv.off('message', handler);
+      reject(new Error('Timeout getting proposal'));
+    }, 5000);
+  });
+}
+
+async function buyContractOnDeriv(signal: DerivSignal, proposalId: string): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const requestId = Date.now();
+    
+    const handler = (data: any) => {
+      if (data.req_id === requestId) {
+        deriv.off('message', handler);
+        if (data.buy) {
+          resolve(data);
+        } else {
+          reject(new Error('Buy request failed'));
+        }
+      }
+    };
+
+    deriv.on('message', handler);
+
+    deriv.send({
+      buy: proposalId,
+      price: signal.amount,
+      req_id: requestId
+    });
+
+    setTimeout(() => {
+      deriv.off('message', handler);
+      reject(new Error('Timeout buying contract'));
+    }, 5000);
+  });
+}
+
+async function handleTradingSignal(userId: string, signal: DerivSignal) {
+  const botState = botStates.get(userId);
+  if (!botState || !botState.isRunning) return;
+
+  // Get config
+  const config = botState.config;
+  
+  // Check if this symbol is in our trading list
+  if (!config.symbols.includes(signal.symbol)) {
+    console.log(`⚠️ [${userId}] Signal for ${signal.symbol} ignored (not in trading list)`);
+    return;
+  }
+
+  // Adjust amount based on user config
+  signal.amount = config.amountPerTrade || 10;
+
+  // Execute the trade
+  const tradeResult = await executeTradeOnDeriv(userId, signal, config);
+  
+  if (tradeResult) {
+    botState.tradesExecuted++;
+    botState.currentTrades.push(tradeResult);
+    
+    // Save trade to database
+    await saveTradeToDatabase(userId, tradeResult);
+  }
+}
+
+async function saveTradeToDatabase(userId: string, trade: any) {
+  try {
+    const { error } = await supabase
+      .from("trades")
+      .insert({
+        user_id: userId,
+        trade_id: trade.id,
+        symbol: trade.symbol,
+        contract_type: trade.contractType,
+        action: trade.action,
+        amount: trade.amount,
+        entry_price: trade.entryPrice,
+        payout: trade.payout,
+        status: trade.status,
+        contract_id: trade.contractId,
+        proposal_id: trade.proposalId,
+        pnl: trade.pnl,
+        pnl_percentage: trade.pnlPercentage,
+        created_at: trade.timestamp
+      });
+
+    if (error) {
+      console.error(`❌ [${userId}] Failed to save trade to database:`, error.message);
+    } else {
+      console.log(`💾 [${userId}] Trade saved to database: ${trade.id}`);
+    }
+  } catch (error: any) {
+    console.error(`❌ [${userId}] Save trade error:`, error.message);
+  }
+}
+
+async function updateExistingTrades(userId: string) {
+  const botState = botStates.get(userId);
+  if (!botState) return;
+
+  // Check for contract updates
+  botState.currentTrades.forEach(async (trade: any, index: number) => {
+    if (trade.status === 'open') {
+      // Check if contract is expired (assuming 5-minute contracts)
+      const now = new Date();
+      const tradeTime = new Date(trade.timestamp);
+      const duration = 5 * 60 * 1000; // 5 minutes in milliseconds
+      
+      if (now.getTime() - tradeTime.getTime() > duration) {
+        // Contract expired, close it
+        trade.status = 'closed';
+        trade.closedAt = now;
+        trade.closePrice = trade.entryPrice;
+
+        // Update in database
+        const { error } = await supabase
+          .from("trades")
+          .update({
+            status: 'closed',
+            closed_at: now,
+            close_price: trade.closePrice
+          })
+          .eq('trade_id', trade.id);
+
+        if (!error) {
+          console.log(`🔒 [${userId}] Contract ${trade.contractId} closed (expired)`);
+        }
+      }
+    }
+  });
+
+  // Remove closed trades from memory after 1 hour
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  botState.currentTrades = botState.currentTrades.filter((trade: any) => 
+    trade.status === 'open' || new Date(trade.timestamp) > oneHourAgo
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isDerivConnected(): boolean {
+  // Implement proper connection check
+  return true; // Simplified
+}
+
+// Add this to your bot routes
+export const forceTrade = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const userId = req.user.id;
+    const { symbol, contract_type, amount } = req.body;
+    
+    if (!symbol || !contract_type || !amount) {
+      return res.status(400).json({ error: "Missing required parameters" });
+    }
+
+    // Validate amount based on subscription
+    if (req.user.subscription_status === 'free' && amount > 10) {
+      return res.status(403).json({ 
+        error: "Free users are limited to $10 per trade. Upgrade to premium for higher limits." 
+      });
+    }
+
+    const signal: DerivSignal = {
+      action: contract_type === 'CALL' ? 'BUY_CALL' : 'BUY_PUT',
+      symbol,
+      contract_type: contract_type as 'CALL' | 'PUT',
+      amount: parseFloat(amount),
+      duration: 5,
+      duration_unit: 'm',
+      confidence: 0.7,
+      zone: {
+        top: 0,
+        bottom: 0,
+        type: contract_type === 'CALL' ? 'demand' : 'supply',
+        strength: 0,
+        symbol,
+        timeframe: 60,
+        created: Date.now(),
+        touched: 0
+      },
+      timestamp: Date.now()
+    };
+
+    const botState = botStates.get(userId);
+    const config = botState?.config || {};
+
+    const tradeResult = await executeTradeOnDeriv(userId, signal, config);
+    
+    if (tradeResult) {
+      res.json({ 
+        message: "Trade executed successfully",
+        contractId: tradeResult.buy?.contract_id,
+        payout: tradeResult.buy?.payout,
+        user: {
+          id: userId,
+          subscription: req.user.subscription_status
+        }
+      });
+    } else {
+      res.status(500).json({ error: "Trade execution failed" });
+    }
+  } catch (error: any) {
     console.error('Force trade error:', error);
-    res.status(500).json({ error: 'Failed to force trade' });
+    res.status(500).json({ error: 'Failed to execute trade' });
+  }
+};
+
+// Get all active bots (admin function)
+export const getAllActiveBots = async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    // Check if user is admin (you can add this check)
+    // if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+
+    const activeBots = Array.from(botStates.entries()).map(([userId, state]) => ({
+      userId,
+      isRunning: state.isRunning,
+      startedAt: state.startedAt,
+      tradesExecuted: state.tradesExecuted,
+      totalProfit: state.totalProfit,
+      activeTrades: state.currentTrades.length,
+      symbols: state.config.symbols || []
+    }));
+
+    res.json({
+      totalActive: activeBots.length,
+      bots: activeBots
+    });
+  } catch (error: any) {
+    console.error('Get all bots error:', error);
+    res.status(500).json({ error: 'Failed to get active bots' });
   }
 };

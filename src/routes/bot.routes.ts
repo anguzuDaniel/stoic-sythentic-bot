@@ -7,15 +7,15 @@ const {
   getBotStatus,
   forceTrade
 } = require('../controllers/bot.controller');
-const { requirePaidUser } = require('../middleware/auth.middleware');
+const { authenticateToken, requirePaidUser } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-router.post("/config",  saveBotConfig);
-router.get("/config",  getBotConfig);
-router.post("/start",  startBot);
-router.post("/stop", stopBot);
-router.get("/status", getBotStatus);
-router.post("/force-trade", forceTrade);
+router.post("/config", authenticateToken, saveBotConfig);
+router.get("/config", authenticateToken, getBotConfig);
+router.post("/start",authenticateToken, startBot);
+router.post("/stop", authenticateToken, stopBot);
+router.get("/status", authenticateToken, getBotStatus);
+router.post("/force-trade", authenticateToken, forceTrade);
 
 module.exports = router;
