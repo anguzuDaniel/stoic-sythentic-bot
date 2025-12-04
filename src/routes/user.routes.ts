@@ -1,9 +1,9 @@
 import { Router } from "express";
-const { getUserProfile, updatePlan } = require("../controllers/user.controller");
+const userController = require("../controllers/user/user.controller");
 
 const router = Router();
 
-router.get("/profile", getUserProfile);
-router.post("/update-plan", updatePlan);
+router.get("/profile", userController.getUserProfile);
+router.post("/update-plan", userController.updatePlan);
 
 module.exports = router;

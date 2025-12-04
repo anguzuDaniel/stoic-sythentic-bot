@@ -42,4 +42,4 @@ const updateExistingTrades = async (userId: string) => {
   );
 }
 
-export default updateExistingTrades;
+export { updateExistingTrades };

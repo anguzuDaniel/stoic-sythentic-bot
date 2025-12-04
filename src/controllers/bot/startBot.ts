@@ -1,8 +1,10 @@
 import { Response } from 'express';
 import { DerivSupplyDemandStrategy } from "../../strategies/DerivSupplyDemandStrategy";
 import { AuthenticatedRequest } from "../../types/AuthenticatedRequest";
+
 const botStates = require('../../types/botStates');
 const executeTradingCycle = require('./executeTradingCycle');
+const supabase = require('../../config/supabase').supabase;
 
 const startBot = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -71,7 +73,7 @@ const startBot = async (req: AuthenticatedRequest, res: Response) => {
     const botState = {
       isRunning: true,
       startedAt: new Date(),
-      tradingInterval: null,
+      tradingInterval: null as NodeJS.Timeout | null,
       currentTrades: [],
       totalProfit: 0,
       tradesExecuted: 0,
@@ -98,17 +100,36 @@ const startBot = async (req: AuthenticatedRequest, res: Response) => {
       console.log('Database error:', statusError);
     }
 
-    // Start the trading cycle
-    const tradingInterval = setInterval(() => {
-      executeTradingCycle(userId, config);
-    }, config.analysisInterval || 30000);
+    // Start the trading cycle with proper interval
+    const cycleInterval = (config.cycleInterval || 30) * 1000; // Convert to milliseconds, default 30 seconds
+    
+    const tradingCycle = async () => {
+      if (!botState.isRunning) {
+        if (botState.tradingInterval) {
+          clearInterval(botState.tradingInterval);
+        }
+        return;
+      }
+      
+      try {
+        await executeTradingCycle(userId, config);
+      } catch (error) {
+        console.error(`❌ Error in trading cycle for user ${userId}:`, error);
+      }
+    };
 
-    botState.tradingInterval = tradingInterval;
+    // Run immediately once
+    tradingCycle();
+    
+    // Then set up interval for subsequent runs
+    const intervalId = setInterval(tradingCycle, cycleInterval);
+    botState.tradingInterval = intervalId;
 
     console.log(`🤖 Bot started for user ${userId}`);
     console.log(`📊 Trading symbols: ${config.symbols.join(', ')}`);
     console.log(`💰 Trade amount: $${baseAmount}`);
     console.log(`👑 Subscription: ${subscription}`);
+    console.log(`⏱️  Cycle interval: ${cycleInterval/1000} seconds`);
 
     res.json({ 
       message: "Trading bot started successfully",
@@ -121,12 +142,12 @@ const startBot = async (req: AuthenticatedRequest, res: Response) => {
       },
       config: {
         symbols: config.symbols,
-        analysisInterval: config.analysisInterval || 30,
+        cycleInterval: config.cycleInterval || 30,
         amountPerTrade: baseAmount
       }
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Start bot error:', error);
     res.status(500).json({ error: 'Failed to start bot: ' + error.message });
   }

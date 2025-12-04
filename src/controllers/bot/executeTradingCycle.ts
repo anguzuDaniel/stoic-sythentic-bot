@@ -7,9 +7,8 @@ import { delay } from "../../utils/delay";
 
 const executeTradingCycle = async (userId: string, config: any) => {
   const botState = botStates.get(userId);
+  
   if (!botState || !botState.isRunning) return;
-
-  console.log(`📊 [${userId}] Executing trading cycle...`);
 
   try {
     // For each symbol, get recent candles and analyze
