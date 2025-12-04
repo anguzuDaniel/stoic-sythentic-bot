@@ -11,3 +11,5 @@ const botStates = new Map<string, {
   derivConnected: boolean;
   config: any;
 }>();
+
+module.exports = botStates;

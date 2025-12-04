@@ -1,6 +1,10 @@
+import { Response } from 'express';
 import { DerivSupplyDemandStrategy } from "../../strategies/DerivSupplyDemandStrategy";
+import { AuthenticatedRequest } from "../../types/AuthenticatedRequest";
+const botStates = require('../../types/botStates');
+const executeTradingCycle = require('./executeTradingCycle');
 
-const startBot = async (req, res) => {
+const startBot = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user.id;
     const userEmail = req.user.email;
@@ -128,4 +132,4 @@ const startBot = async (req, res) => {
   }
 };
 
-module.exports = startBot;
+export { startBot };

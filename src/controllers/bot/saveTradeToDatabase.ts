@@ -1,4 +1,4 @@
-async function saveTradeToDatabase(userId: string, trade: any) {
+const saveTradeToDatabase = async (userId: string, trade: any) => {
   try {
     const { error } = await supabase
       .from("trades")
@@ -29,4 +29,4 @@ async function saveTradeToDatabase(userId: string, trade: any) {
   }
 }
 
-module.exports = { saveTradeToDatabase };
+export default saveTradeToDatabase;

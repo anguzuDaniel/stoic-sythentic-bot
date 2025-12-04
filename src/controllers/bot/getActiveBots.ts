@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
 
+const botStates = require('../../types/botStates');
+
 const getAllActiveBots = async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.user.isAdmin) return res.status(403).json({ error: 'Admin access required' });

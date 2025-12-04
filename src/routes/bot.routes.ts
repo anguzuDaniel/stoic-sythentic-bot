@@ -1,11 +1,11 @@
 const { Router } = require('express');
 const { authenticateToken, requirePaidUser } = require('../middleware/auth.middleware');
-const forceTrade = require('../controllers/bot/forceTrade');
-const startBot = require('../controllers/bot/startBot');
-const stopBot = require('../controllers/bot/stopBot');
-const getBotStatus = require('../controllers/bot/getBotStatus');
-const getBotConfig = require('../controllers/bot/getBotConfig');
-const saveBotConfig = require('../controllers/bot/saveBotConfig');
+import { saveBotConfig } from "../controllers/bot/saveBotConfig";
+import { getBotConfig } from "../controllers/bot/getBotConfig";
+import { startBot } from "../controllers/bot/startBot";
+import { stopBot } from "../controllers/bot/stopBot";
+import { getBotStatus } from "../controllers/bot/getBotStatus";
+import { forceTrade } from "../controllers/bot/forceTrade";
 
 const router = Router();
 

@@ -28,4 +28,4 @@ const getBotConfig = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
-module.exports = getBotConfig;
+export { getBotConfig };

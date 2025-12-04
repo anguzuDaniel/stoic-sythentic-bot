@@ -1,6 +1,11 @@
-const executeTradeOnDeriv = require('./executeTradeOnDeriv');
+const botStates = require('../../types/botStates');
+const { executeTradeOnDeriv } = require('./executeTradeOnDeriv');
+const { getCandlesFromDeriv } = require('./getCandlesFromDeriv');
+const { saveTradeToDatabase } = require('./saveTradeToDatabase');
+const { updateExistingTrades } = require('./UpdateExistingTrades');
+import { delay } from "../../utils/delay";
 
-async function executeTradingCycle(userId: string, config: any) {
+const executeTradingCycle = async (userId: string, config: any) => {
   const botState = botStates.get(userId);
   if (!botState || !botState.isRunning) return;
 

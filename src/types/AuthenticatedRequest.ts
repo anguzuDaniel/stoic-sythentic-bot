@@ -1,3 +1,5 @@
-export interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest extends Request {
   user: JWTUser;
 }
+
+export { AuthenticatedRequest };

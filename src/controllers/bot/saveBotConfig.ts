@@ -29,4 +29,4 @@ const saveBotConfig = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
-module.exports = { saveBotConfig };
+export { saveBotConfig };

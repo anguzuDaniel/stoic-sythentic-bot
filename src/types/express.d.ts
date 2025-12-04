@@ -7,3 +7,7 @@ declare global {
     }
   }
 }
+
+// export interface AuthenticatedRequest extends Request {
+//   user: User; // For routes where user is guaranteed to exist
+// }

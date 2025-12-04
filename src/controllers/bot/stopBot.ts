@@ -1,5 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
+const deriv = require('../../config/deriv');
+const botStates = require('../../types/botStates');
 
 const stopBot = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -75,4 +77,4 @@ const stopBot = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
-module.exports = stopBot;
+export { stopBot };

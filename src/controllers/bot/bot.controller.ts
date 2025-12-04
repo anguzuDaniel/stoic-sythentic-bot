@@ -4,7 +4,7 @@ import { BotConfig } from '../../types/BotConfig';
 import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
 
 const { supabase } = require('../config/supabase');
-
+const botStates = require('../../types/botStates');
 
 const saveBotConfig = async (req: AuthenticatedRequest, res: Response) => {
   try {

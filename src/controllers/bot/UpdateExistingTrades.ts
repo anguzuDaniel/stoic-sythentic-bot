@@ -1,6 +1,6 @@
-const botStates = require('./botStates');
+const botStates = require('../../types/botStates');
 
-async function updateExistingTrades(userId: string) {
+const updateExistingTrades = async (userId: string) => {
   const botState = botStates.get(userId);
   if (!botState) return;
 
@@ -42,4 +42,4 @@ async function updateExistingTrades(userId: string) {
   );
 }
 
-module.exports = updateExistingTrades;
+export default updateExistingTrades;

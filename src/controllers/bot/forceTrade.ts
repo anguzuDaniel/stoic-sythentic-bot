@@ -4,7 +4,7 @@ import { ForceTradeRequest } from '../../types/ForceTradeRequest';
 import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
 
 const executeTradeOnDeriv = require('./executeTradeOnDeriv');
-const botStates = require('./botStates');
+const botStates = require('../../types/botStates');
 
 const forceTrade = async (req: AuthenticatedRequest, res: Response) => {
   try {
@@ -67,4 +67,4 @@ const forceTrade = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
-module.exports = forceTrade;
+export { forceTrade };

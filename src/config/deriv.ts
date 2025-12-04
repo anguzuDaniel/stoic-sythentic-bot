@@ -1,4 +1,4 @@
-const { DerivWebSocket } = require('./deriv');
+import { DerivWebSocket } from "../deriv/DerivWebSocket";
 
 const deriv = new DerivWebSocket({
   apiToken: process.env.DERIV_API_TOKEN,

@@ -1,10 +1,9 @@
 import { DerivSignal } from "../../strategies/DerivSupplyDemandStrategy";
 
 const getProposalFromDeriv = require('./getProposalFromDeriv');
-const botContractOnDeriv = require('./botContractOnDeriv');
-const buyContractOnDeriv = require('./buyContractOnDeriv');
+const buyContractOnDeriv = require('./botContractOnDeriv');
 
-async function executeTradeOnDeriv(userId: string, signal: DerivSignal, config: any): Promise<any> {
+const executeTradeOnDeriv = async(userId: string, signal: DerivSignal, config: any): Promise<any> => {
   try {
     console.log(`📤 [${userId}] Executing trade: ${signal.contract_type} ${signal.symbol} $${signal.amount}`);
     

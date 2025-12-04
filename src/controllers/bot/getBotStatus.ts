@@ -1,6 +1,8 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
 
+const botStates = require('../../types/botStates');
+
 const getBotStatus = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user.id;
@@ -65,4 +67,4 @@ const getBotStatus = async (req: AuthenticatedRequest, res: Response) => {
   }
 };
 
-module.exports = getBotStatus;
+export { getBotStatus };
