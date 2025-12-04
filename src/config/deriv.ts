@@ -1,9 +1,8 @@
-// Enhanced DerivWebSocket.ts
 import WebSocket from "ws";
 import EventEmitter from "events";
 import { DerivCandle, DerivConnectionOptions, SupplyDemandZone, TradingSignal } from "../deriv/types";
 
-export class DerivWebSocket extends EventEmitter {
+class DerivWebSocket extends EventEmitter {
   private ws: WebSocket | null = null;
   private options: DerivConnectionOptions;
   private reconnectAttempts = 0;
@@ -448,84 +447,86 @@ export class DerivWebSocket extends EventEmitter {
   }
 
   // Add this to your DerivWebSocket class
-public async sendTestTrade(): Promise<void> {
-  if (!this.isAuthorized) {
-    console.error("❌ Not authorized to trade");
-    return;
-  }
+  public async sendTestTrade(): Promise<void> {
+    if (!this.isAuthorized) {
+      console.error("❌ Not authorized to trade");
+      return;
+    }
 
-  // Create a simple test trade signal
-  const testSignal: TradingSignal = {
-    action: 'BUY_CALL',
-    symbol: 'R_100', // Volatility 100 Index
-    contract_type: 'CALL',
-    amount: 1, // $1 test amount
-    duration: 5,
-    duration_unit: 'm',
-    confidence: 0.5,
-    zone: {
-      top: 0,
-      bottom: 0,
-      type: 'demand',
-      strength: 0,
-      symbol: 'R_100',
-      timeframe: 60,
-      created: Date.now(),
-      touched: 0
-    },
-    timestamp: Date.now()
-  };
-
-  console.log('🚀 Sending test trade...');
-  
-  const contractParams = {
-    proposal: 1,
-    amount: testSignal.amount,
-    basis: 'stake',
-    contract_type: testSignal.contract_type,
-    currency: 'USD',
-    duration: testSignal.duration,
-    duration_unit: testSignal.duration_unit,
-    symbol: testSignal.symbol
-  };
-
-  try {
-    // First get proposal
-    this.send(contractParams);
-    
-    // Listen for proposal response
-    const proposalHandler = (data: any) => {
-      if (data.msg_type === 'proposal' && data.echo_req?.contract_type === 'CALL') {
-        console.log('📊 Proposal received:', data.proposal);
-        
-        // Send buy request
-        this.send({
-          buy: data.proposal.id,
-          price: testSignal.amount
-        });
-        
-        // Remove this listener
-        this.off('message', proposalHandler);
-      }
+    // Create a simple test trade signal
+    const testSignal: TradingSignal = {
+      action: 'BUY_CALL',
+      symbol: 'R_100', // Volatility 100 Index
+      contract_type: 'CALL',
+      amount: 1, // $1 test amount
+      duration: 5,
+      duration_unit: 'm',
+      confidence: 0.5,
+      zone: {
+        top: 0,
+        bottom: 0,
+        type: 'demand',
+        strength: 0,
+        symbol: 'R_100',
+        timeframe: 60,
+        created: Date.now(),
+        touched: 0
+      },
+      timestamp: Date.now()
     };
+
+    console.log('🚀 Sending test trade...');
     
-    this.on('message', proposalHandler);
-    
-    // Listen for buy response
-    const buyHandler = (data: any) => {
-      if (data.msg_type === 'buy') {
-        console.log('✅ Buy response:', data.buy);
-        console.log(`💰 Contract ID: ${data.buy?.contract_id}`);
-        console.log(`💰 Payout: $${data.buy?.payout}`);
-        console.log(`💰 Entry Tick: ${data.buy?.entry_tick}`);
-        this.off('message', buyHandler);
-      }
+    const contractParams = {
+      proposal: 1,
+      amount: testSignal.amount,
+      basis: 'stake',
+      contract_type: testSignal.contract_type,
+      currency: 'USD',
+      duration: testSignal.duration,
+      duration_unit: testSignal.duration_unit,
+      symbol: testSignal.symbol
     };
-    
-    this.on('message', buyHandler);
-    
-  } catch (error) {
-    console.error("❌ Test trade failed:", error);
-  }
+
+    try {
+      // First get proposal
+      this.send(contractParams);
+      
+      // Listen for proposal response
+      const proposalHandler = (data: any) => {
+        if (data.msg_type === 'proposal' && data.echo_req?.contract_type === 'CALL') {
+          console.log('📊 Proposal received:', data.proposal);
+          
+          // Send buy request
+          this.send({
+            buy: data.proposal.id,
+            price: testSignal.amount
+          });
+          
+          // Remove this listener
+          this.off('message', proposalHandler);
+        }
+      };
+      
+      this.on('message', proposalHandler);
+      
+      // Listen for buy response
+      const buyHandler = (data: any) => {
+        if (data.msg_type === 'buy') {
+          console.log('✅ Buy response:', data.buy);
+          console.log(`💰 Contract ID: ${data.buy?.contract_id}`);
+          console.log(`💰 Payout: $${data.buy?.payout}`);
+          console.log(`💰 Entry Tick: ${data.buy?.entry_tick}`);
+          this.off('message', buyHandler);
+        }
+      };
+      
+      this.on('message', buyHandler);
+      
+    } catch (error) {
+      console.error("❌ Test trade failed:", error);
+    }
   }
 }
+
+export { DerivWebSocket };
