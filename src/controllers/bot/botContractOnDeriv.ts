@@ -1,4 +1,5 @@
 import { DerivSignal } from "../../strategies/DerivSupplyDemandStrategy";
+const { deriv } = require('../config/deriv');
 
 async function buyContractOnDeriv(signal: DerivSignal, proposalId: string): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -29,3 +30,5 @@ async function buyContractOnDeriv(signal: DerivSignal, proposalId: string): Prom
     }, 5000);
   });
 }
+
+module.exports = buyContractOnDeriv;

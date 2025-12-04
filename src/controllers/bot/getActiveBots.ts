@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
 
 const getAllActiveBots = async (req: AuthenticatedRequest, res: Response) => {
   try {

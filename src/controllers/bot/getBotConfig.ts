@@ -1,3 +1,6 @@
+import { Response } from 'express';
+import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
+
 const getBotConfig = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user.id;

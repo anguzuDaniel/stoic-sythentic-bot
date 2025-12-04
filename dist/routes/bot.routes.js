@@ -1,13 +1,16 @@
-import { Router } from "express";
-import { saveBotConfig } from "../controllers/bot.controller";
-import { getBotConfig } from "../config/getBotConfig";
-import { startBot } from "../config/startBot";
-import { stopBot } from "../config/stopBot";
-import { requirePaidUser } from "../middleware/authMiddleware";
+const { Router } = require('express');
+const { authenticateToken, requirePaidUser } = require('../middleware/auth.middleware');
+const forceTrade = require('../controllers/bot/forceTrade');
+const startBot = require('../controllers/bot/startBot');
+const stopBot = require('../controllers/bot/stopBot');
+const getBotStatus = require('../controllers/bot/getBotStatus');
+const getBotConfig = require('../controllers/bot/getBotConfig');
+const saveBotConfig = require('../controllers/bot/saveBotConfig');
 const router = Router();
-router.post("/config", requirePaidUser, saveBotConfig);
-router.get("/config", requirePaidUser, getBotConfig);
-router.post("/start", requirePaidUser, startBot);
-router.post("/stop", requirePaidUser, stopBot);
-export default router;
-//# sourceMappingURL=bot.routes.js.map
+router.post("/config", authenticateToken, saveBotConfig);
+router.get("/config", authenticateToken, getBotConfig);
+router.post("/start", authenticateToken, startBot);
+router.post("/stop", authenticateToken, stopBot);
+router.get("/status", authenticateToken, getBotStatus);
+router.post("/force-trade", authenticateToken, forceTrade);
+module.exports = router;

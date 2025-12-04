@@ -29,4 +29,4 @@ async function saveTradeToDatabase(userId: string, trade: any) {
   }
 }
 
-module.exports = saveTradeToDatabase;
+module.exports = { saveTradeToDatabase };

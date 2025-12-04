@@ -1,14 +1,13 @@
-import WebSocket from "ws";
-export const createDerivConnection = (apiToken) => {
-    const ws = new WebSocket("wss://ws.deriv.com/websockets/v3?app_id=1089");
-    ws.on("open", () => {
-        ws.send(JSON.stringify({
-            authorize: apiToken,
-        }));
-    });
-    ws.on("error", (err) => {
-        console.error("Deriv WebSocket Error:", err);
-    });
-    return ws;
-};
-//# sourceMappingURL=deriv.js.map
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.deriv = void 0;
+const { DerivWebSocket } = require('./deriv');
+const deriv = new DerivWebSocket({
+    apiToken: process.env.DERIV_API_TOKEN,
+    appId: process.env.DERIV_APP_ID || '1089',
+    reconnect: true,
+    maxReconnectAttempts: 10,
+    heartbeatInterval: 15000
+});
+exports.deriv = deriv;
+deriv.connect();

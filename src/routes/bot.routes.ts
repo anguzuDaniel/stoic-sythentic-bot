@@ -2,6 +2,10 @@ const { Router } = require('express');
 const { authenticateToken, requirePaidUser } = require('../middleware/auth.middleware');
 const forceTrade = require('../controllers/bot/forceTrade');
 const startBot = require('../controllers/bot/startBot');
+const stopBot = require('../controllers/bot/stopBot');
+const getBotStatus = require('../controllers/bot/getBotStatus');
+const getBotConfig = require('../controllers/bot/getBotConfig');
+const saveBotConfig = require('../controllers/bot/saveBotConfig');
 
 const router = Router();
 

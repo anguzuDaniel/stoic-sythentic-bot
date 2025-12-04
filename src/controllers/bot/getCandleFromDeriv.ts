@@ -1,3 +1,5 @@
+const { deriv } = require('../config/deriv');
+
 async function getCandlesFromDeriv(symbol: string, timeframe: number, count: number): Promise<any[]> {
   return new Promise((resolve, reject) => {
     const requestId = Date.now();
@@ -42,3 +44,5 @@ async function getCandlesFromDeriv(symbol: string, timeframe: number, count: num
     }, 5000);
   });
 }
+
+module.exports = { getCandlesFromDeriv };

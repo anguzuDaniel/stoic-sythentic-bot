@@ -1,6 +1,10 @@
 import { Response } from 'express';
 import { DerivSignal } from "../../strategies/DerivSupplyDemandStrategy";
 import { ForceTradeRequest } from '../../types/ForceTradeRequest';
+import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
+
+const executeTradeOnDeriv = require('./executeTradeOnDeriv');
+const botStates = require('./botStates');
 
 const forceTrade = async (req: AuthenticatedRequest, res: Response) => {
   try {

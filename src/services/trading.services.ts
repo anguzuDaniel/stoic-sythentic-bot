@@ -1,4 +1,4 @@
-import { DerivWebSocket } from '../config/deriv';
+import { DerivWebSocket } from '../deriv/DerivWebSocket';
 import { DerivSupplyDemandStrategy, DerivSignal } from '../strategies/DerivSupplyDemandStrategy';
 
 interface ContractParameters {

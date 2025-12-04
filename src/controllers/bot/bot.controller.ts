@@ -1,11 +1,12 @@
 import { Request, Response } from 'express';
 import { DerivSupplyDemandStrategy, DerivSignal } from '../../strategies/DerivSupplyDemandStrategy';
 import { BotConfig } from '../../types/BotConfig';
+import { AuthenticatedRequest } from '../../types/AuthenticatedRequest';
 
 const { supabase } = require('../config/supabase');
 
 
-export const saveBotConfig = async (req: AuthenticatedRequest, res: Response) => {
+const saveBotConfig = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.user.id;
     const config = req.body as unknown as BotConfig;
@@ -60,3 +61,4 @@ export const saveBotConfig = async (req: AuthenticatedRequest, res: Response) =>
   }
 };
 
+module.exports = { saveBotConfig };
